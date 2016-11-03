@@ -16,7 +16,6 @@ import javax.servlet.ServletException;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.HttpURLConnection;
-import java.net.MalformedURLException;
 import java.net.URL;
 import java.util.Locale;
 import java.util.logging.Level;
@@ -29,6 +28,7 @@ public class WebhookAction extends AbstractDescribableImpl<WebhookAction> implem
 
     private static final Logger LOGGER = Logger.getLogger(WebhookAction.class.getName());
     private static final String CODE_REVIEW_PASS_MSG = "PreMerge测试通过，可以Merge :100:";
+    private static final String UPVOTE = ":+1:";
     private static final String URL_FORMAT = "https://git.chunyu.me/api/v3" +
             "/projects/%s" +
             "/merge_requests/%s/%s" +
@@ -45,7 +45,7 @@ public class WebhookAction extends AbstractDescribableImpl<WebhookAction> implem
 
         String baseMRUrl = String.format(Locale.getDefault(), URL_FORMAT, projectId, mrId, "%s");
 
-        if (isPassUpvote(baseMRUrl) && isPass100(baseMRUrl)) {
+        if (isPassed(baseMRUrl)) {
             String errMsg = acceptMergeRequest(baseMRUrl);
             String responseMsg;
             if (errMsg == null) {
@@ -60,34 +60,27 @@ public class WebhookAction extends AbstractDescribableImpl<WebhookAction> implem
         }
     }
 
-    private boolean isPassUpvote(String baseMRUrl) throws IOException {
-        URL url = new URL(String.format(Locale.getDefault(), baseMRUrl, ""));
-        HttpURLConnection connection = (HttpURLConnection) url.openConnection();
-        connection.connect();
-        String body = readInputStream(connection.getInputStream());
-        JSONTokener tokener = new JSONTokener(body);
-        JSONObject mergeRequest = (JSONObject) tokener.nextValue();
-        int upvotes = mergeRequest.optInt("upvotes");
-        LOGGER.log(Level.INFO, "Upvotes: " + upvotes);
-        return upvotes >= 2;
-    }
-
-    private boolean isPass100(String baseMRUrl) throws IOException {
+    private boolean isPassed(String baseMRUrl) throws IOException {
         URL url = new URL(String.format(Locale.getDefault(), baseMRUrl, "notes"));
         HttpURLConnection connection = (HttpURLConnection) url.openConnection();
         connection.connect();
         String body = readInputStream(connection.getInputStream());
         JSONTokener tokener = new JSONTokener(body);
         JSONArray notes = (JSONArray) tokener.nextValue();
+
+        boolean isPass100 = false;
+        int upvotes = 0;
         for (int i = 0; i < notes.size(); i++) {
             String noteBody = notes.getJSONObject(i).optString("body", "");
             if (noteBody.contains(CODE_REVIEW_PASS_MSG)) {
                 LOGGER.log(Level.INFO, "Pass code analysis");
-                return true;
+                isPass100 = true;
+            } else if (noteBody.contains(UPVOTE)) {
+                upvotes++;
             }
         }
-        LOGGER.log(Level.INFO, "Code analysis not passed");
-        return false;
+        LOGGER.log(Level.INFO, "Upvotes: " + upvotes);
+        return isPass100 && upvotes >= 2;
     }
 
     private String acceptMergeRequest(String baseMRUrl) throws IOException {
